@@ -6,7 +6,7 @@
     <meta content='width=device-width; height=device-height; initial-scale=1.0; maximum-scale=1.0; user-scalable=0;' name='viewport' />
     <meta name="viewport" content="width=device-width" />
     <meta name="license" content="
-        Copyright 2013 Google, Abram Hindle
+        Copyright 2013 Google, Abram Hindle, 2021 Ivan Zhang
         
         Licensed under the Apache License, Version 2.0 (the "License");
         you may not use this file except in compliance with the License.
@@ -46,16 +46,62 @@ world = {};
 
 //XXX: TODO Make this prettier!
 function drawCircle(context,entity) {
-    with(context) {
-        beginPath();                
-        lineWidth = 3;
-        var x = entity["x"];
-        var y = entity["y"];
-        //moveTo(x,y);
-        fillStyle = entity["colour"];
-        strokeStyle = fillStyle;
-        arc(x, y, (entity["radius"])?entity["radius"]:50, 0, 2.0 * Math.PI, false);  
-        stroke();                                
+    if(entity["dragger"] && entity["radius"]!=null){
+        with(context) {
+            beginPath();              
+            lineWidth = 3;
+            var x = entity["x"];
+            var y = entity["y"];
+            fillStyle = entity["colour"];
+            strokeStyle = fillStyle;
+            arc(x, y, entity["radius"], 0, 2.0 * Math.PI, false); 
+            fill();             
+        }
+    }
+    else{
+        // reference: https://developer.mozilla.org/en-US/docs/Web/API/Canvas_API/Tutorial/Drawing_shapes
+        with(context){
+            var canvas = document.getElementById('canvas');
+            if (canvas.getContext) {
+                var ctx = canvas.getContext('2d');
+
+                // draw the pokemon ball background
+                beginPath();
+                var x = entity["x"];
+                var y = entity["y"];
+                arc(x,y,40,0,Math.PI*2,false); // 150 45
+                fillStyle="red";
+                strokeStyle="black";
+                
+                fill();
+                stroke();
+                beginPath();
+                arc(x,y,40,0,Math.PI,false); // 150 45
+                fillStyle="white";
+                fill();
+                strokeStyle="black";
+                stroke();
+                
+                // draw the horizontal line
+                beginPath();
+                moveTo(x-40, y-2);
+                lineTo(x+40, y-2);
+                lineTo(x+40, y+2);
+                lineTo(x-40, y+2);
+                fillStyle="black";
+                fill();
+
+                // draw the pokemon ball center circle
+                beginPath();
+                arc(x,y,10,0,Math.PI*2,false); // 150 45
+                fillStyle="white";
+                fill();
+                strokeStyle="black";
+                stroke();
+
+
+            }
+        }
     }
 }
 
@@ -72,7 +118,7 @@ function prepEntity(entity) {
 function clearFrame() {
     with(context) {
 	moveTo(0,0);
-	fillStyle = "#000";
+	fillStyle = "#bdb76b";
 	fillRect(0,0,W,H);
     }
 
@@ -125,6 +171,9 @@ function addEntity(entity, data) {
     world[entity] = data;
     drawNextFrame(); // (but should we?)
     //XXX: Send a XHTML Request that updates the entity you just modified!
+    let requestData = {};
+    requestData[entity] = data;
+    socket.send(JSON.stringify(requestData));
 }
 var counter = 0;
 function addEntityWithoutName(data) {
@@ -170,7 +219,6 @@ mouse = (function() {
                 var y = pos[1];
 	        self.clicked = 1;
                 self.callListeners(self.mousedowners,x,y,self.clicked,e);
-                //addEntityWithoutName({'x':x,'y':y,'colour':'red'});
             }
         },
         mouseup: function(e) {
@@ -180,11 +228,10 @@ mouse = (function() {
                 var pos = getPosition(e);
                 var x = pos[0];
                 var y = pos[1];
-	        //self.poppin(x,y);
-	        self.clicked = 0;
+                //self.poppin(x,y);
+                self.clicked = 0;
                 self.selected = -1;
                 self.callListeners(self.mouseuppers,x,y,self.clicked,e);
-                //addEntityWithoutName({'x':x,'y':y,'colour':'blue'});
             }
         },
         touchstart: function(e) {
@@ -212,8 +259,7 @@ mouse = (function() {
             self.lasttouch = e;                                         
             return self.mousemove(e);
 	},
-		                                   
-        // Install the mouse listeners
+	// Install the mouse listeners
 	mouseinstall: function() {
             canvas.addEventListener("mousedown",  self.mousedown, false);
             canvas.addEventListener("mousemove",  self.mousemove, false);
@@ -224,23 +270,33 @@ mouse = (function() {
             canvas.addEventListener("touchend",   self.touchend, false);
 	}
     };
+    // Force install!
     self.mouseinstall();
     return self;
 })();
 
+
 // Add the application specific mouse listeners!
 //XXX: TODO Make these prettier!
+function getRandomColor() {
+    // reference: https://developer.mozilla.org/en-US/docs/web/javascript/reference/global_objects/math/random
+    // colors are picked from the reference
+    color_list = ['#aaf0d1', '#7fffd4', '#99e6b3', '#b2ffff', '#d0ff14','#ffa500','#ffe135','#da70d6'];
+    var color = color_list[Math.floor(Math.random() * 8)];
+    return color;
+}
+
 mouse.mousedowners.push(function(x,y,clicked,e) {
-    addEntityWithoutName({'x':x,'y':y,'colour':'blue'});
+    addEntityWithoutName({'x':x,'y':y});
 });
 
 mouse.mouseuppers.push(function(x,y,clicked,e) {
-    addEntityWithoutName({'x':x,'y':y,'colour':'red'});
+    addEntityWithoutName({'x':x,'y':y});
 });
 
 mouse.mousedraggers.push(function(x,y,clicked,e) {
-    addEntityWithoutName({'x':x,'y':y,'colour':'green',
-                          'radius':10});
+    addEntityWithoutName({'x':x,'y':y,'colour': getRandomColor(),
+                          'dragger':true,'radius':5});
 });
 
 
@@ -254,6 +310,7 @@ function wsSetup() {
     socket = new WebSocket(url);
     socket.onopen = function() {
         //XXX: TODO What are you going to do here?
+        debug("WebSocket Open: Success");
     };
     socket.onerror = function(msg) {
         debug("WebSocket Error:" + msg.data);
@@ -262,6 +319,11 @@ function wsSetup() {
         try {
             debug("WebSocket Recv:" + msg.data);
             //XXX: TODO What are you going to do here?            
+            let parsedData = JSON.parse(msg.data);
+            for (let data in parsedData){
+                world[data] = parsedData[data];
+            }
+            drawNextFrame();
         } catch (e) {
             alert("socket on message: " + e);
         }
